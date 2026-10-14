@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Bloxd x Canva Hybrid</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #1e1e24;
+        }
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            width: 100vw;
+            height: 100vh;
+        }
+        /* 3D Bloxd Section */
+        #bloxd-section {
+            flex: 1;
+            position: relative;
+            background: #87CEEB;
+        }
+        #bloxd-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .section-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 10;
+        }
+        /* 2D Canva Section */
+        #canva-section {
+            flex: 1;
+            position: relative;
+            background: #f3f4f6;
+            display: flex;
+            flex-direction: column;
+            border-top: 4px solid #3b82f6;
+        }
+        #toolbar {
+            height: 50px;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            gap: 10px;
+            border-bottom: 1px solid #e5e7eb;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        button {
+            padding: 8px 12px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            touch-action: manipulation;
+        }
+        button:active {
+            background: #1d4ed8;
+        }
+        #canvas-wrapper {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <!-- Include Three.js for 3D (Bloxd) and Fabric.js for 2D (Canva) -->
+    <script src="https://cloudflare.com"></script>
+    <script src="https://cloudflare.com"></script>
+</head>
+<body>
+
+    <div id="app-container">
+        <!-- BLOXD.IO SIDE (3D World) -->
+        <div id="bloxd-section">
+            <div class="section-label">Bloxd 3D World (Tap to build blocks)</div>
+            <div id="bloxd-canvas"></div>
+        </div>
+
+        <!-- CANVA SIDE (2D Design) -->
+        <div id="canva-section">
+            <div class="section-label" style="top: 60px; color: #333; background: rgba(255,255,255,0.8);">Canva Studio (Drag & Touch)</div>
+            <div id="toolbar">
+                <button onclick="addShape('rect')">⬜ +Square</button>
+                <button onclick="addShape('circle')">🔮 +Circle</button>
+                <button onclick="addText()">🔤 +Text</button>
+                <button onclick="clearCanva()" style="background: #ef4444;">🗑️ Clear</button>
+            </div>
+            <div id="canvas-wrapper">
+                <canvas id="canva-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. BLOXD.IO 3D ENGINE (Three.js)
+        // ==========================================
+        const bloxdContainer = document.getElementById('bloxd-canvas');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue
+
+        // Camera
+        const camera = new THREE.PerspectiveCamera(45, bloxdContainer.clientWidth / bloxdContainer.clientHeight, 0.1, 1000);
+        camera.position.set(5, 5, 8);
+        camera.lookAt(0, 0, 0);
+
+        // Renderer
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(bloxdContainer.clientWidth, bloxdContainer.clientHeight);
+        bloxdContainer.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 15);
+        scene.add(dirLight);
+
+        // Grid/Floor
+        const gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x888888);
+        gridHelper.position.y = -0.5;
+        scene.add(gridHelper);
+
+        // Block Geometry & Materials
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = new THREE.MeshLambertMaterial({ color: 0x4ade80 });
+
+        // Add an initial block
+        const startBlock = new THREE.Mesh(geometry, material);
+        scene.add(startBlock);
+
+        // Raycasting for touch input detection
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function handleBloxdTouch(event) {
+            // Support both touch and mouse click
+            const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+            const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+
+            // Get boundaries of the 3D window
+            const rect = renderer.domElement.getBoundingClientRect();
+            
+            // Calculate position inside the 3D canvas
+            mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children);
+
+            if (intersects.length > 0) {
+                const intersect = intersects[0];
+                // Spawn a new block on top of the side we touched
+                const newBlock = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color: Math.random() * 0xffffff }));
+                newBlock.position.copy(intersect.point).add(intersect.face.normal);
+                newBlock.position.divideScalar(1).floor().addScalar(0.5); // Snap to standard grid
+                scene.add(newBlock);
+            }
+        }
+
+        // Listen for screen touches / clicks on the 3D canvas
+        bloxdContainer.addEventListener('pointerdown', handleBloxdTouch);
+
+        // Animation Loop
+        function animate() {
+            requestAnimationFrame(animate);
+            // Slowly rotate scene just to show 3D depth
+            scene.rotation.y += 0.003;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+
+        // ==========================================
+        // 2. CANVA 2D DESIGN ENGINE (Fabric.js)
+        // ==========================================
+        const wrapper = document.getElementById('canvas-wrapper');
+        const fabricCanvas = new fabric.Canvas('canva-canvas');
+
+        // Automatically size canvas to match its containers
+        function resizeCanva() {
+            fabricCanvas.setWidth(wrapper.clientWidth);
+            fabricCanvas.setHeight(wrapper.clientHeight);
+            fabricCanvas.renderAll();
+        }
+        setTimeout(resizeCanva, 100); // Small delay to let layout load
+
+        // Function to add a Square or Circle
+        function addShape(type) {
+            let shape;
+            if (type === 'rect') {
+                shape = new fabric.Rect({
+                    left: 50, top: 50, fill: '#a855f7', width: 80, height: 80, cornerRadius: 10
+                });
+            } else {
+                shape = new fabric.Circle({
+                    left: 100, top: 60, fill: '#ec4899', radius: 40
+                });
+            }
+            fabricCanvas.add(shape);
+            fabricCanvas.setActiveObject(shape);
+        }
+
+        // Function to add customizable text
+        function addText() {
+            const text = new fabric.IText('Tap to Edit', {
+                left: 80, top: 80, fontSize: 24, fill: '#1e293b', fontFamily: 'Arial'
+            });
+            fabricCanvas.add(text);
+            fabricCanvas.setActiveObject(text);
+        }
+
+        // Wipe the canvas clear
+        function clearCanva() {
+            fabricCanvas.clear();
+        }
+
+
+        // ==========================================
+        // 3. RESPONSIVE RESIZING CONTROLLER
+        // ==========================================
+        window.addEventListener('resize', () => {
+            // Update 3D Canvas
+            camera.aspect = bloxdContainer.clientWidth / bloxdContainer.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(bloxdContainer.clientWidth, bloxdContainer.clientHeight);
+            
+            // Update 2D Canvas
+            resizeCanva();
+        });
+    </script>
+</body>
+</html>
